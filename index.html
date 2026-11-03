@@ -129,7 +129,71 @@ canvas.playing { cursor: none; }
 #scores .name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 #scores .points { color: var(--laser); font-weight: 600; }
 #board-status:empty { display: none; }
+#guide-open {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  padding: 8px 18px;
+  border: 2px solid var(--asteroid);
+  border-radius: 2px;
+  background: var(--void);
+  color: var(--ink);
+  font: 600 16px var(--mono);
+  cursor: pointer;
+}
+#guide-open:hover { background: var(--asteroid); }
+#guide {
+  width: min(760px, calc(100vw - 32px));
+  max-height: calc(100dvh - 32px);
+  padding: 0;
+  border: 2px solid var(--laser);
+  border-radius: 4px;
+  background: var(--void);
+  color: var(--ink);
+  font: 400 20px/1.5 var(--mono);
+}
+#guide::backdrop { background: rgba(5, 4, 12, .8); }
+#guide-sheet { display: grid; grid-template-rows: auto 1fr auto; max-height: calc(100dvh - 36px); }
+#guide-head, #guide-foot { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 12px 18px; }
+#guide-head { border-bottom: 1px solid rgba(164, 167, 196, .3); }
+#guide-foot { border-top: 1px solid rgba(164, 167, 196, .3); }
+#guide-head span { font: 700 13px var(--display); letter-spacing: .12em; color: var(--asteroid); }
+#guide-close { border: 0; background: none; color: var(--ink); font: 400 32px/1 var(--mono); cursor: pointer; }
+#guide-page { display: grid; gap: 14px; padding: 18px; overflow: auto; }
+#guide-art { width: 100%; height: auto; border-radius: 2px; background: #000; }
+#guide-title { margin: 0; font: 700 clamp(20px, 4vw, 28px)/1.2 var(--display); letter-spacing: .06em; text-wrap: balance; }
+#guide-keys { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+#guide-keys:empty { display: none; }
+#guide-keys .row { display: flex; gap: 8px; }
+#guide-keys .wasd { display: grid; gap: 8px; justify-items: center; }
+#guide kbd {
+  display: inline-grid;
+  place-items: center;
+  min-width: 2.2em;
+  padding: 2px 10px;
+  border: 2px solid var(--laser);
+  border-bottom-width: 5px;
+  border-radius: 6px;
+  color: var(--laser);
+  font: 600 1em var(--mono);
+}
+#guide-text { margin: 0; max-width: 60ch; }
+#guide-text strong { color: var(--laser); }
+#guide-foot button {
+  padding: 8px 18px;
+  border: 2px solid var(--laser);
+  border-radius: 2px;
+  background: transparent;
+  color: var(--laser);
+  font: 600 18px var(--mono);
+  cursor: pointer;
+}
+#guide-foot button:disabled { visibility: hidden; }
+#guide-count { color: var(--muted); font-variant-numeric: tabular-nums; }
+#guide-open:focus-visible, #guide-close:focus-visible, #guide-foot button:focus-visible { outline: 2px solid var(--asteroid); outline-offset: 3px; }
 @media (max-width: 560px) {
+  #guide { font-size: 17px; }
+  #guide-open { top: 8px; right: 8px; padding: 4px 12px; font-size: 14px; }
   #menu { gap: 6px; padding: 8px; font-size: 12px; line-height: 1.3; }
   #controls { gap: 0 10px; }
   #play, #practice { padding: 4px 20px; font-size: 14px; }
@@ -140,6 +204,7 @@ canvas.playing { cursor: none; }
 <main id="stage">
   <canvas id="screen" width="480" height="360" aria-label="Herní plocha"></canvas>
   <section id="menu">
+    <button id="guide-open" type="button">Návod</button>
     <h1 id="headline">ASTEROIDS</h1>
     <p id="score" hidden></p>
     <form id="save" hidden>
@@ -166,6 +231,25 @@ canvas.playing { cursor: none; }
     </section>
   </section>
 </main>
+<dialog id="guide" aria-labelledby="guide-title">
+  <div id="guide-sheet">
+    <header id="guide-head">
+      <span>JAK HRÁT ASTEROIDS</span>
+      <button id="guide-close" type="button" aria-label="Zavřít návod">×</button>
+    </header>
+    <article id="guide-page">
+      <canvas id="guide-art" width="960" height="440" role="img"></canvas>
+      <h2 id="guide-title"></h2>
+      <div id="guide-keys"></div>
+      <p id="guide-text"></p>
+    </article>
+    <footer id="guide-foot">
+      <button id="guide-prev" type="button">← Zpět</button>
+      <span id="guide-count"></span>
+      <button id="guide-next" type="button">Další →</button>
+    </footer>
+  </div>
+</dialog>
 
 <script>
 'use strict';
@@ -903,6 +987,202 @@ saveForm.addEventListener('submit', async e => {
     saveButton.disabled = false;
   }
 });
+
+// ---- guide ---------------------------------------------------------------
+// A small booklet. Each page draws a scene from the real costumes, placed in
+// stage coordinates inside a 240 × 110 window around the centre of the stage.
+const keycaps = {
+  wasd: '<div class="wasd"><div class="row"><kbd>W</kbd></div><div class="row"><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd></div></div>',
+  mouse: '<kbd>myš</kbd> míření <kbd>levé tlačítko</kbd> laser',
+  space: '<kbd>mezerník</kbd> drž pro kulomet',
+  e: '<kbd>E</kbd> bomba',
+};
+const GUIDE = [
+  {
+    title: 'Cíl hry',
+    alt: 'Loď uprostřed, kolem ní růžové asteroidy a letící laser.',
+    scene: [
+      { c: 'asteroid1', x: -80, y: 25, dir: 30, size: 220 }, { c: 'asteroid2', x: 85, y: -20, dir: 120, size: 160 },
+      { c: 'asteroid3', x: 40, y: 38, dir: 200, size: 110 }, { c: 'laser1', x: -30, y: 10, dir: -70, size: 150 },
+      { c: 'laser1', x: -50, y: 17, dir: -70, size: 150 }, { c: 'ship', x: 0, y: 0, dir: -70, size: 160 },
+    ],
+    text: 'Jsi pilot malé lodi uprostřed pole asteroidů. <strong>Sestřeluj je a sbírej body.</strong> Asteroidy přilétají od okrajů pořád dál. Když ti dojde zdraví, hra končí.',
+  },
+  {
+    title: 'Pohyb',
+    alt: 'Loď letí šikmo nahoru a za ní zůstává slábnoucí stopa.',
+    scene: [
+      { c: 'ship', x: -60, y: -30, dir: 45, size: 110, ghost: 0.25 }, { c: 'ship', x: -25, y: -10, dir: 45, size: 130, ghost: 0.5 },
+      { c: 'ship', x: 15, y: 12, dir: 45, size: 160 },
+    ],
+    keys: 'wasd',
+    text: '<kbd>W</kbd> nahoru, <kbd>S</kbd> dolů, <kbd>A</kbd> doleva, <kbd>D</kbd> doprava. Loď má <strong>setrvačnost</strong>: když klávesu pustíš, ještě chvíli klouže. Z hrací plochy nevyletíš.',
+  },
+  {
+    title: 'Míření a laser',
+    alt: 'Loď míří na zelený zaměřovač na asteroidu a letí k němu červené lasery.',
+    scene: [
+      { c: 'asteroid2', x: 78, y: 24, dir: 0, size: 150 }, { c: 'ship', x: -70, y: -15, dir: 70, size: 160 },
+      { c: 'laser1', x: -35, y: -3, dir: 70, size: 150 }, { c: 'laser1', x: 5, y: 10, dir: 70, size: 150 },
+      { c: 'aim', x: 78, y: 24, size: 260 },
+    ],
+    keys: 'mouse',
+    text: 'Loď se vždycky natočí za myší a <strong>zelený zaměřovač</strong> ukazuje, kam míříš. Levým tlačítkem střílíš laser, asi 7 ran za sekundu. Laser nikdy nedojde.',
+  },
+  {
+    title: 'Kulomet',
+    alt: 'Loď pálí dlouhou řadu modrých střel na asteroid.',
+    scene: [
+      { c: 'ship', x: -85, y: -5, dir: 90, size: 160 },
+      ...Array.from({ length: 9 }, (_, i) => ({ c: 'laser2', x: -55 + i * 17, y: -5, dir: 90, size: 150 })),
+      { c: 'asteroid3', x: 100, y: -5, dir: 60, size: 160 },
+    ],
+    keys: 'space',
+    text: 'Drž <kbd>mezerník</kbd> a kulomet vystřelí <strong>30 střel za sekundu</strong>. Má ale jen 40 nábojů a každou sekundu se dobije 5. Kolik ti jich zbývá, ukazuje <strong>pravé oranžové okénko</strong> nahoře.',
+  },
+  {
+    title: 'Bomba',
+    alt: 'Bomba letí od lodi, vedle velký kruh výbuchu, který zasahuje asteroidy.',
+    scene: [
+      { c: 'asteroid1', x: 75, y: 15, dir: 90, size: 140 }, { c: 'asteroid2', x: 30, y: -25, dir: 10, size: 120 },
+      { c: 'ship', x: -90, y: -10, dir: 90, size: 160 }, { c: 'bomb', x: -45, y: -10, size: 150 }, { c: 'blast', x: 55, y: 0, size: 85 },
+    ],
+    keys: 'e',
+    text: 'Klávesou <kbd>E</kbd> vystřelíš bombu. Když trefí asteroid, <strong>vybuchne a 3 sekundy</strong> ničí všechno, čeho se dotkne. Pozor: za asteroidy zničené bombou <strong>nejsou body</strong>. Bomb máš nejvýš 5 a nová přibude každých 5 sekund. Počet je v <strong>levém okénku</strong>.',
+  },
+  {
+    title: 'Asteroidy se dělí',
+    alt: 'Velký asteroid, šipka, tři menší kusy, šipka a tři ještě menší úlomky.',
+    scene: [
+      { c: 'asteroid1', x: -85, y: 0, dir: 90, size: 280 },
+      { c: 'asteroid1', x: -5, y: 25, dir: 40, size: 140 }, { c: 'asteroid1', x: -5, y: -25, dir: 160, size: 140 },
+      { c: 'asteroid1', x: 15, y: 0, dir: 250, size: 140 },
+      { c: 'asteroid1', x: 75, y: 30, dir: 30, size: 70 }, { c: 'asteroid1', x: 95, y: 10, dir: 120, size: 70 },
+      { c: 'asteroid1', x: 80, y: -12, dir: 300, size: 70 },
+    ],
+    arrows: [[-52, 0, -30, 0], [37, 0, 58, 0]],
+    text: 'Zásah laserem rozbije asteroid na <strong>tři menší kusy, které letí rychleji</strong>. Body dostaneš, až když zničíš ten nejmenší kousek: 50 až 250 podle velikosti asteroidu.',
+  },
+  {
+    title: 'Zdraví',
+    alt: 'Bílá loď při nárazu do asteroidu a vedle ukazatele zdraví: plný, poloviční a skoro prázdný.',
+    scene: [
+      { c: 'asteroid1', x: -60, y: 15, dir: 90, size: 220 }, { c: 'ship', x: -40, y: 8, dir: 200, size: 160, white: true },
+      { c: 'health10', x: 55, y: 25, size: 300 }, { c: 'health5', x: 55, y: 0, size: 300 }, { c: 'health1', x: 55, y: -25, size: 300 },
+    ],
+    text: 'Pod lodí je <strong>ukazatel zdraví</strong>. Každý dotek s asteroidem ubírá zdraví a loď na chvilku zbělá. Dokud se asteroidu dotýkáš, zdraví mizí rychle, tak <strong>uhýbej</strong>.',
+  },
+  {
+    title: 'Ukazatele nahoře',
+    alt: 'Tři oranžová okénka s popisky: bomby, skóre, náboje.',
+    hud: true,
+    text: 'Nahoře jsou tři oranžová okénka. <strong>Vlevo</strong> počet bomb, <strong>uprostřed</strong> skóre, <strong>vpravo</strong> náboje kulometu.',
+  },
+  {
+    title: 'Trénink a tabulka',
+    alt: 'Loď s plným ukazatelem zdraví a dva vzdálené asteroidy.',
+    scene: [
+      { c: 'asteroid2', x: -75, y: 20, dir: 90, size: 160, ghost: 0.6 }, { c: 'asteroid3', x: 80, y: -15, dir: 90, size: 140, ghost: 0.6 },
+      { c: 'ship', x: 0, y: 5, dir: 90, size: 160 }, { c: 'health10', x: 0, y: -25, size: 200 },
+    ],
+    text: 'Tlačítko <strong>Trénink</strong> spustí lehčí hru: asteroidy jsou pomalejší, přilétají méně často a máš 10× víc zdraví. Skóre z tréninku se neukládá. V normální hře po konci napíšeš jméno a <strong>skóre se uloží do tabulky nejlepších</strong>.',
+  },
+];
+const guide = document.getElementById('guide'), guideArt = document.getElementById('guide-art');
+const guideTitle = document.getElementById('guide-title'), guideKeys = document.getElementById('guide-keys');
+const guideText = document.getElementById('guide-text'), guideCount = document.getElementById('guide-count');
+const guidePrev = document.getElementById('guide-prev'), guideNext = document.getElementById('guide-next');
+const VIEW_W = 240, VIEW_H = 110;
+let guidePage = 0;
+
+function drawGuideHud(g) {
+  g.fillStyle = 'rgba(5, 4, 12, .55)';
+  g.fillRect(-VIEW_W / 2, -VIEW_H / 2, VIEW_W, VIEW_H);
+  g.textAlign = 'center';
+  g.textBaseline = 'middle';
+  g.strokeStyle = '#b0fbff';
+  g.lineWidth = 0.6;
+  [['5', 'bomby'], ['420', 'skóre'], ['40', 'náboje']].forEach(([value, label], i) => {
+    const x = -82 + i * 58;
+    g.fillStyle = '#ff8c1a';
+    g.beginPath();
+    g.roundRect(x, -30, 48, 22, 4);
+    g.fill();
+    g.fillStyle = '#fff';
+    g.font = '600 14px "Helvetica Neue", Helvetica, Arial, sans-serif';
+    g.fillText(value, x + 24, -18.5);
+    g.beginPath();
+    g.moveTo(x + 24, -5);
+    g.lineTo(x + 24, 2);
+    g.stroke();
+    g.fillStyle = '#b0fbff';
+    g.font = '600 11px Consolas, monospace';
+    g.fillText(label, x + 24, 10);
+  });
+}
+
+function drawGuideScene(page) {
+  const g = guideArt.getContext('2d'), k = guideArt.width / VIEW_W;
+  g.setTransform(1, 0, 0, 1, 0, 0);
+  g.fillStyle = '#000';
+  g.fillRect(0, 0, guideArt.width, guideArt.height);
+  // the matching part of the backdrop, which has 2 px per stage unit
+  g.drawImage(background, (240 - VIEW_W / 2) * 2, (180 - VIEW_H / 2) * 2, VIEW_W * 2, VIEW_H * 2, 0, 0, guideArt.width, guideArt.height);
+  g.setTransform(k, 0, 0, k, (VIEW_W / 2) * k, (VIEW_H / 2) * k);
+  if (page.hud) { drawGuideHud(g); return; }
+  for (const item of page.scene) {
+    const c = COSTUMES[item.c], size = (item.size || 100) / 100;
+    g.save();
+    g.globalAlpha = item.ghost || 1;
+    g.translate(item.x, -item.y);
+    g.rotate(rad((item.dir ?? 90) - 90));
+    g.scale(size, size);
+    g.drawImage(item.white ? c.white : c.image, -c.cx, -c.cy, c.w, c.h);
+    g.restore();
+  }
+  g.strokeStyle = '#b0fbff';
+  g.lineWidth = 1.5;
+  for (const [x1, y1, x2, y2] of page.arrows || []) {
+    g.beginPath();
+    g.moveTo(x1, -y1);
+    g.lineTo(x2, -y2);
+    g.lineTo(x2 - 5, -y2 - 4);
+    g.moveTo(x2, -y2);
+    g.lineTo(x2 - 5, -y2 + 4);
+    g.stroke();
+  }
+}
+
+function showGuidePage(index) {
+  guidePage = Math.max(0, Math.min(GUIDE.length - 1, index));
+  const page = GUIDE[guidePage];
+  drawGuideScene(page);
+  guideArt.setAttribute('aria-label', page.alt);
+  guideTitle.textContent = page.title;
+  guideKeys.innerHTML = page.keys ? keycaps[page.keys] : '';
+  guideText.innerHTML = page.text;
+  guideCount.textContent = `${guidePage + 1} / ${GUIDE.length}`;
+  guidePrev.disabled = guidePage === 0;
+  guideNext.textContent = guidePage === GUIDE.length - 1 ? 'Zavřít' : 'Další →';
+  document.getElementById('guide-page').scrollTop = 0;
+}
+
+document.getElementById('guide-open').addEventListener('click', () => {
+  if (!background) return; // costumes are still loading
+  showGuidePage(0);
+  guide.showModal();
+});
+document.getElementById('guide-close').addEventListener('click', () => guide.close());
+guidePrev.addEventListener('click', () => showGuidePage(guidePage - 1));
+guideNext.addEventListener('click', () => {
+  if (guidePage === GUIDE.length - 1) guide.close();
+  else showGuidePage(guidePage + 1);
+});
+guide.addEventListener('keydown', e => {
+  if (e.key === 'ArrowRight') showGuidePage(guidePage + 1);
+  if (e.key === 'ArrowLeft') showGuidePage(guidePage - 1);
+});
+guide.addEventListener('click', e => { if (e.target === guide) guide.close(); });
 
 // ---- input ---------------------------------------------------------------
 function trackMouse(e) {
