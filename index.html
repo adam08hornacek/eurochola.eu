@@ -129,10 +129,8 @@ canvas.playing { cursor: none; }
 #scores .name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 #scores .points { color: var(--laser); font-weight: 600; }
 #board-status:empty { display: none; }
-#guide-open {
-  position: absolute;
-  top: 16px;
-  right: 16px;
+#corner { position: absolute; top: 16px; right: 16px; display: flex; gap: 8px; }
+#guide-open, #binds-open {
   padding: 8px 18px;
   border: 2px solid var(--asteroid);
   border-radius: 2px;
@@ -141,7 +139,7 @@ canvas.playing { cursor: none; }
   font: 600 16px var(--mono);
   cursor: pointer;
 }
-#guide-open:hover { background: var(--asteroid); }
+#guide-open:hover, #binds-open:hover { background: var(--asteroid); }
 #guide {
   width: min(760px, calc(100vw - 32px));
   max-height: calc(100dvh - 32px);
@@ -190,10 +188,54 @@ canvas.playing { cursor: none; }
 }
 #guide-foot button:disabled { visibility: hidden; }
 #guide-count { color: var(--muted); font-variant-numeric: tabular-nums; }
-#guide-open:focus-visible, #guide-close:focus-visible, #guide-foot button:focus-visible { outline: 2px solid var(--asteroid); outline-offset: 3px; }
+#guide-open:focus-visible, #binds-open:focus-visible, #guide-close:focus-visible, #guide-foot button:focus-visible { outline: 2px solid var(--asteroid); outline-offset: 3px; }
+#binds {
+  width: min(520px, calc(100vw - 32px));
+  max-height: calc(100dvh - 32px);
+  padding: 0;
+  border: 2px solid var(--laser);
+  border-radius: 4px;
+  background: var(--void);
+  color: var(--ink);
+  font: 400 18px/1.5 var(--mono);
+}
+#binds::backdrop { background: rgba(5, 4, 12, .8); }
+#binds header, #binds footer { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 12px 18px; }
+#binds header { border-bottom: 1px solid rgba(164, 167, 196, .3); }
+#binds footer { border-top: 1px solid rgba(164, 167, 196, .3); }
+#binds header span { font: 700 13px var(--display); letter-spacing: .12em; color: var(--asteroid); }
+#binds-close { border: 0; background: none; color: var(--ink); font: 400 32px/1 var(--mono); cursor: pointer; }
+#binds-hint { margin: 14px 18px 4px; color: var(--muted); font-size: 15px; }
+#binds-list { margin: 0; padding: 8px 18px 14px; list-style: none; }
+#binds-list li { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 6px 0; border-bottom: 1px solid rgba(164, 167, 196, .2); }
+#binds-list button {
+  min-width: 9em;
+  padding: 2px 12px;
+  border: 2px solid var(--laser);
+  border-bottom-width: 5px;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--laser);
+  font: 600 16px var(--mono);
+  cursor: pointer;
+}
+#binds-list button.waiting { border-color: var(--asteroid); color: var(--asteroid); }
+#binds footer button {
+  padding: 8px 18px;
+  border: 2px solid var(--laser);
+  border-radius: 2px;
+  background: transparent;
+  color: var(--laser);
+  font: 600 16px var(--mono);
+  cursor: pointer;
+}
+#binds footer #binds-reset { border-color: var(--muted); color: var(--muted); }
+#binds button:focus-visible { outline: 2px solid var(--asteroid); outline-offset: 3px; }
 @media (max-width: 560px) {
   #guide { font-size: 17px; }
-  #guide-open { top: 8px; right: 8px; padding: 4px 12px; font-size: 14px; }
+  #corner { top: 8px; right: 8px; }
+  #guide-open, #binds-open { padding: 4px 12px; font-size: 14px; }
+  #binds { font-size: 16px; }
   #menu { gap: 6px; padding: 8px; font-size: 12px; line-height: 1.3; }
   #controls { gap: 0 10px; }
   #play, #practice { padding: 4px 20px; font-size: 14px; }
@@ -204,7 +246,10 @@ canvas.playing { cursor: none; }
 <main id="stage">
   <canvas id="screen" width="480" height="360" aria-label="Herní plocha"></canvas>
   <section id="menu">
-    <button id="guide-open" type="button">Návod</button>
+    <div id="corner">
+      <button id="binds-open" type="button">Ovládání</button>
+      <button id="guide-open" type="button">Návod</button>
+    </div>
     <h1 id="headline">ASTEROIDS</h1>
     <p id="score" hidden></p>
     <form id="save" hidden>
@@ -231,6 +276,18 @@ canvas.playing { cursor: none; }
     </section>
   </section>
 </main>
+<dialog id="binds" aria-labelledby="binds-title">
+  <header>
+    <span id="binds-title">OVLÁDÁNÍ</span>
+    <button id="binds-close" type="button" aria-label="Zavřít ovládání">×</button>
+  </header>
+  <p id="binds-hint">Klikni na tlačítko u akce a pak stiskni novou klávesu nebo tlačítko myši. Esc výběr zruší.</p>
+  <ul id="binds-list"></ul>
+  <footer>
+    <button id="binds-reset" type="button">Výchozí</button>
+    <button id="binds-done" type="button">Hotovo</button>
+  </footer>
+</dialog>
 <dialog id="guide" aria-labelledby="guide-title">
   <div id="guide-sheet">
     <header id="guide-head">
@@ -295,8 +352,8 @@ const ASTEROID = 0, BIG = 1;
 // ---- engine --------------------------------------------------------------
 let threads = [], layers = [], byName = {}, cloneCount = 0, time = 0;
 let G, HEALTH, ship, healthBar, bombSprite; // G = stage variables
-const pressed = new Set(), mouse = { x: 0, y: 0, down: false };
-const key = k => pressed.has(k) ? 1 : 0;
+const pressed = new Set(), mouse = { x: 0, y: 0 };
+const key = action => pressed.has(binds[action].code) ? 1 : 0;
 
 function spawn(sprite, script) { threads.push({ sprite, gen: script(sprite) }); }
 
@@ -458,8 +515,8 @@ function* shipMain(s) {
   while (!(G.health < 1)) {
     G.direction = s.dir;
     pointAtMouse(s);
-    moveX(s, key('d') - key('a'));
-    moveY(s, key('w') - key('s'));
+    moveX(s, key('right') - key('left'));
+    moveY(s, key('up') - key('down'));
     shoot();
     unlimited();
     checkPlayerCollision(s);
@@ -483,14 +540,14 @@ function moveY(s, joystick) {
 function shoot() {
   if (G.fireRate > 0) {
     G.fireRate -= 3;
-  } else if (mouse.down) {
+  } else if (key('laser')) {
     createClone(byName.laser1[0]);
     G.fireRate = 10;
   }
 }
 
 function unlimited() {
-  if (key(' ') && G.machineGun > 0) {
+  if (key('machineGun') && G.machineGun > 0) {
     G.machineGun -= 1;
     createClone(byName.laser2[0]);
   }
@@ -538,7 +595,7 @@ function* bombFloor() {
 
 function* bombKey() {
   for (;;) {
-    if (key('e') && G.cooldown > 0) {
+    if (key('bomb') && G.cooldown > 0) {
       G.cooldown -= 1;
       createClone(bombSprite);
       yield* wait(1);
@@ -1184,6 +1241,119 @@ guide.addEventListener('keydown', e => {
 });
 guide.addEventListener('click', e => { if (e.target === guide) guide.close(); });
 
+// ---- key bindings --------------------------------------------------------
+// Each action is bound to a KeyboardEvent.code, or to Mouse0 / Mouse1 / Mouse2
+// for a mouse button. Saved in this browser only.
+const ACTIONS = [
+  ['up', 'nahoru'], ['left', 'doleva'], ['down', 'dolů'], ['right', 'doprava'],
+  ['laser', 'laser'], ['machineGun', 'kulomet'], ['bomb', 'bomba'],
+];
+const DEFAULT_BINDS = {
+  up: { code: 'KeyW', label: 'W' }, left: { code: 'KeyA', label: 'A' },
+  down: { code: 'KeyS', label: 'S' }, right: { code: 'KeyD', label: 'D' },
+  laser: { code: 'Mouse0', label: 'levé tlačítko' },
+  machineGun: { code: 'Space', label: 'mezerník' }, bomb: { code: 'KeyE', label: 'E' },
+};
+const keyNames = {
+  Mouse0: 'levé tlačítko', Mouse1: 'kolečko', Mouse2: 'pravé tlačítko', Space: 'mezerník',
+  ArrowUp: '↑', ArrowDown: '↓', ArrowLeft: '←', ArrowRight: '→',
+  ShiftLeft: 'levý Shift', ShiftRight: 'pravý Shift', ControlLeft: 'levý Ctrl', ControlRight: 'pravý Ctrl',
+  AltLeft: 'Alt', AltRight: 'AltGr', CapsLock: 'Caps Lock',
+};
+let binds = { ...DEFAULT_BINDS };
+try {
+  const saved = JSON.parse(localStorage.getItem('asteroids-binds'));
+  for (const [action] of ACTIONS) if (saved?.[action]?.code) binds[action] = saved[action];
+} catch { /* storage blocked or corrupt: keep defaults */ }
+
+const bindsDialog = document.getElementById('binds'), bindsList = document.getElementById('binds-list');
+let waitingFor = null, swallowClick = false;
+
+function renderBinds() {
+  bindsList.replaceChildren(...ACTIONS.map(([action, name]) => {
+    const row = document.createElement('li'), label = document.createElement('span'), button = document.createElement('button');
+    label.textContent = name;
+    button.type = 'button';
+    button.dataset.action = action;
+    button.textContent = waitingFor === action ? 'stiskni…' : binds[action].label;
+    button.classList.toggle('waiting', waitingFor === action);
+    row.append(label, button);
+    return row;
+  }));
+  const rows = [
+    [['up', 'left', 'down', 'right'].map(a => binds[a].label).join(' '), 'pohyb'],
+    ['myš', 'míření'], [binds.laser.label, 'laser'],
+    [binds.machineGun.label, 'kulomet'], [binds.bomb.label, 'bomba'],
+  ];
+  controls.replaceChildren(...rows.flatMap(([keys, what]) => {
+    const dt = document.createElement('dt'), dd = document.createElement('dd');
+    dt.textContent = keys;
+    dd.textContent = what;
+    return [dt, dd];
+  }));
+}
+
+function assignBind(code, label) {
+  const action = waitingFor;
+  waitingFor = null;
+  // Taking a key from another action gives that action this one's old key.
+  const other = ACTIONS.find(([a]) => a !== action && binds[a].code === code);
+  if (other) binds[other[0]] = binds[action];
+  binds[action] = { code, label };
+  try { localStorage.setItem('asteroids-binds', JSON.stringify(binds)); } catch { /* storage blocked */ }
+  renderBinds();
+  bindsList.querySelector(`[data-action="${action}"]`).focus();
+}
+
+function cancelBind() {
+  const action = waitingFor;
+  waitingFor = null;
+  renderBinds();
+  bindsList.querySelector(`[data-action="${action}"]`).focus();
+}
+
+document.getElementById('binds-open').addEventListener('click', () => {
+  waitingFor = null;
+  renderBinds();
+  bindsDialog.showModal();
+});
+document.getElementById('binds-close').addEventListener('click', () => bindsDialog.close());
+document.getElementById('binds-done').addEventListener('click', () => bindsDialog.close());
+document.getElementById('binds-reset').addEventListener('click', () => {
+  binds = { ...DEFAULT_BINDS };
+  waitingFor = null;
+  try { localStorage.removeItem('asteroids-binds'); } catch { /* storage blocked */ }
+  renderBinds();
+});
+bindsList.addEventListener('click', e => {
+  const button = e.target.closest('button');
+  if (!button) return;
+  waitingFor = button.dataset.action;
+  renderBinds();
+  bindsList.querySelector(`[data-action="${waitingFor}"]`).focus();
+});
+bindsDialog.addEventListener('keydown', e => {
+  if (!waitingFor) return;
+  e.preventDefault();
+  e.stopPropagation();
+  if (e.code === 'Escape') cancelBind();
+  else assignBind(e.code, keyNames[e.code] || (e.key.length === 1 ? e.key.toUpperCase() : e.key));
+});
+bindsDialog.addEventListener('cancel', e => { if (waitingFor) { e.preventDefault(); cancelBind(); } });
+bindsDialog.addEventListener('pointerdown', e => {
+  if (!waitingFor || e.pointerType !== 'mouse') return;
+  e.preventDefault();
+  swallowClick = e.button === 0; // the click that follows must not start another wait (other buttons fire no click)
+  assignBind(`Mouse${e.button}`, keyNames[`Mouse${e.button}`] || `tlačítko ${e.button + 1}`);
+});
+bindsDialog.addEventListener('click', e => {
+  if (swallowClick) { swallowClick = false; e.stopPropagation(); return; }
+  if (e.target === bindsDialog) bindsDialog.close();
+}, true);
+bindsDialog.addEventListener('contextmenu', e => e.preventDefault());
+bindsDialog.addEventListener('close', () => { waitingFor = null; });
+renderBinds();
+
 // ---- input ---------------------------------------------------------------
 function trackMouse(e) {
   const box = canvas.getBoundingClientRect();
@@ -1193,20 +1363,31 @@ function trackMouse(e) {
   mouse.y = Math.max(-STAGE_H / 2, Math.min(STAGE_H / 2, y));
 }
 
-window.addEventListener('pointermove', trackMouse);
+// Mouse buttons count only for presses that started on the stage.
+const BUTTON_BITS = [[1, 'Mouse0'], [2, 'Mouse2'], [4, 'Mouse1']];
+function trackButtons(e) {
+  for (const [bit, code] of BUTTON_BITS) if (e.buttons & bit) pressed.add(code); else pressed.delete(code);
+}
+
+window.addEventListener('pointermove', e => {
+  trackMouse(e);
+  if (canvas.hasPointerCapture(e.pointerId)) trackButtons(e);
+});
 canvas.addEventListener('pointerdown', e => {
   trackMouse(e);
-  mouse.down = true;
+  trackButtons(e);
   canvas.setPointerCapture(e.pointerId);
 });
-window.addEventListener('pointerup', () => { mouse.down = false; });
+window.addEventListener('pointerup', trackButtons);
+window.addEventListener('pointercancel', trackButtons);
 canvas.addEventListener('contextmenu', e => e.preventDefault());
 window.addEventListener('keydown', e => {
-  if (phase === 'playing' && (e.key === ' ' || e.key.startsWith('Arrow'))) e.preventDefault();
-  pressed.add(e.key.toLowerCase());
+  const bound = ACTIONS.some(([action]) => binds[action].code === e.code);
+  if (phase === 'playing' && (bound || e.key === ' ' || e.key.startsWith('Arrow'))) e.preventDefault();
+  pressed.add(e.code);
 });
-window.addEventListener('keyup', e => pressed.delete(e.key.toLowerCase()));
-window.addEventListener('blur', () => { pressed.clear(); mouse.down = false; });
+window.addEventListener('keyup', e => pressed.delete(e.code));
+window.addEventListener('blur', () => pressed.clear());
 document.addEventListener('visibilitychange', () => {
   if (!audio || phase !== 'playing') return;
   if (document.hidden) audio.suspend(); else audio.resume();
