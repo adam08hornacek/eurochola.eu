@@ -82,6 +82,50 @@ canvas.playing { cursor: none; }
 }
 #play:hover { background: var(--laser); color: var(--void); }
 #play:focus-visible { outline: 2px solid var(--asteroid); outline-offset: 3px; }
+#save { display: flex; flex-wrap: wrap; justify-content: center; align-items: center; gap: 8px; }
+#save label { color: var(--muted); }
+#player {
+  width: 12em;
+  padding: 6px 8px;
+  border: 1px solid var(--muted);
+  border-radius: 2px;
+  background: var(--void);
+  color: var(--ink);
+  font: 400 15px var(--mono);
+}
+#player:focus-visible, #save-button:focus-visible { outline: 2px solid var(--asteroid); outline-offset: 2px; }
+#save-button {
+  padding: 6px 14px;
+  border: 0;
+  border-radius: 2px;
+  background: var(--laser);
+  color: var(--void);
+  font: 600 15px var(--mono);
+  cursor: pointer;
+}
+#save-button:disabled { opacity: .5; cursor: wait; }
+#board { width: min(20em, 100%); }
+#board h2 {
+  margin: 0 0 6px;
+  font: 700 12px/1.2 var(--display);
+  letter-spacing: .12em;
+  color: var(--asteroid);
+}
+#scores { margin: 0; padding: 0; list-style: none; counter-reset: rank; }
+#scores li {
+  display: grid;
+  grid-template-columns: 2ch 1fr auto;
+  gap: 10px;
+  padding: 2px 0;
+  border-bottom: 1px solid rgba(164, 167, 196, .2);
+  text-align: left;
+  font-variant-numeric: tabular-nums;
+  counter-increment: rank;
+}
+#scores li::before { content: counter(rank); color: var(--muted); text-align: right; }
+#scores .name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#scores .points { color: var(--laser); font-weight: 600; }
+#board-status:empty { display: none; }
 @media (max-width: 560px) {
   #menu { gap: 6px; padding: 8px; font-size: 12px; line-height: 1.3; }
   #controls { gap: 0 10px; }
@@ -95,6 +139,11 @@ canvas.playing { cursor: none; }
   <section id="menu">
     <h1 id="headline">ASTEROIDS</h1>
     <p id="score" hidden></p>
+    <form id="save" hidden>
+      <label for="player">Tvoje jméno</label>
+      <input id="player" name="player" maxlength="16" autocomplete="nickname" required>
+      <button id="save-button" type="submit">Uložit skóre</button>
+    </form>
     <dl id="controls">
       <dt>W A S D</dt><dd>pohyb</dd>
       <dt>myš</dt><dd>míření</dd>
@@ -104,6 +153,11 @@ canvas.playing { cursor: none; }
     </dl>
     <p id="hud-hint">Čísla nahoře, zleva: bomby, skóre, náboje kulometu.</p>
     <button id="play" type="button">Hrát</button>
+    <section id="board" hidden aria-labelledby="board-title">
+      <h2 id="board-title">NEJLEPŠÍ SKÓRE</h2>
+      <ol id="scores"></ol>
+      <p id="board-status"></p>
+    </section>
   </section>
 </main>
 
@@ -744,6 +798,7 @@ function frame(now) {
 }
 
 function greenFlag() {
+  saveForm.hidden = true;
   resetWorld();
   phase = 'playing';
   menu.hidden = true;
@@ -764,8 +819,76 @@ function gameOver() {
   playButton.textContent = 'Hrát znovu';
   menu.hidden = false;
   canvas.classList.remove('playing');
-  playButton.focus();
+  const canSave = Boolean(LEADERBOARD.url) && G.skore > 0;
+  saveForm.hidden = !canSave;
+  saveButton.disabled = false;
+  if (canSave) {
+    try { playerInput.value = localStorage.getItem('asteroids-name') || ''; } catch { /* storage blocked */ }
+    playerInput.focus();
+  } else {
+    playButton.focus();
+  }
+  loadBoard();
 }
+
+// ---- leaderboard ---------------------------------------------------------
+// Supabase project with the public `scores` table from scores.sql.
+// The key is the project's public "anon" key; leave both empty to hide the table.
+const LEADERBOARD = { url: 'https://ruaqzwsucwspmjgpwffv.supabase.co', key: 'sb_publishable_dmqM1CHiO21yxx4QRPBXWQ_7kBXnw18' };
+const board = document.getElementById('board'), scoresList = document.getElementById('scores');
+const boardStatus = document.getElementById('board-status'), saveForm = document.getElementById('save');
+const playerInput = document.getElementById('player'), saveButton = document.getElementById('save-button');
+
+async function scoresRequest(query, options = {}) {
+  const response = await fetch(`${LEADERBOARD.url}/rest/v1/scores${query}`, {
+    ...options,
+    headers: {
+      apikey: LEADERBOARD.key,
+      Authorization: `Bearer ${LEADERBOARD.key}`,
+      'Content-Type': 'application/json',
+      ...options.headers,
+    },
+  });
+  if (!response.ok) throw new Error(`Supabase ${response.status}`);
+  return response;
+}
+
+async function loadBoard() {
+  if (!LEADERBOARD.url) return;
+  board.hidden = false;
+  try {
+    const rows = await (await scoresRequest('?select=name,score&order=score.desc,created_at.asc&limit=10')).json();
+    scoresList.replaceChildren(...rows.map(row => {
+      const item = document.createElement('li'), name = document.createElement('span'), points = document.createElement('span');
+      name.className = 'name';
+      name.textContent = row.name;
+      points.className = 'points';
+      points.textContent = row.score;
+      item.append(name, points);
+      return item;
+    }));
+    boardStatus.textContent = rows.length ? '' : 'Zatím tu nikdo není. Buď první.';
+  } catch {
+    boardStatus.textContent = 'Tabulku se teď nepodařilo načíst.';
+  }
+}
+
+saveForm.addEventListener('submit', async e => {
+  e.preventDefault();
+  const name = playerInput.value.trim();
+  if (!name) return;
+  saveButton.disabled = true;
+  try {
+    await scoresRequest('', { method: 'POST', headers: { Prefer: 'return=minimal' }, body: JSON.stringify({ name, score: G.skore }) });
+    try { localStorage.setItem('asteroids-name', name); } catch { /* storage blocked */ }
+    saveForm.hidden = true;
+    playButton.focus();
+    await loadBoard();
+  } catch {
+    boardStatus.textContent = 'Skóre se nepodařilo uložit. Zkus to znovu.';
+    saveButton.disabled = false;
+  }
+});
 
 // ---- input ---------------------------------------------------------------
 function trackMouse(e) {
@@ -801,6 +924,7 @@ async function boot() {
   resize();
   await loadCostumes();
   requestAnimationFrame(now => { lastFrame = now; frame(now); });
+  loadBoard();
   await loadSounds();
 }
 </script>
