@@ -287,6 +287,7 @@ canvas.playing { cursor: none; }
       <span>Vzhled</span>
       <button type="button" data-look="classic" aria-pressed="true">Klasický</button>
       <button type="button" data-look="vector" aria-pressed="false">Vektorový</button>
+      <button type="button" data-look="neon" aria-pressed="false">Neon</button>
     </div>
     <section id="board" hidden aria-labelledby="board-title">
       <h2 id="board-title">NEJLEPŠÍ SKÓRE</h2>
@@ -850,10 +851,11 @@ async function loadCostumes() {
   await Promise.all(Object.entries(COSTUMES).map(async ([name, c]) => {
     const img = await loadImage(ASSETS.images[name]);
     Object.assign(c, buildMask(img, c));
-    c.looks = { classic: { image: rasterise(img, c.w, c.h, RASTER).canvas, pad: 0 }, vector: await vectorLook(c, VECTOR_ART[name]) };
+    c.looks = { classic: { image: rasterise(img, c.w, c.h, RASTER).canvas, pad: 0 }, vector: await lineLook(c, VECTOR_ART[name]),
+      neon: await lineLook(c, NEON_ART[name], { blur: 1.1, glows: 2, defs: NEON_DEFS }) };
   }));
   for (const name of LOOKS) COSTUMES.ship.looks[name].white = whiteCopy(COSTUMES.ship.looks[name].image);
-  backgrounds = { classic: await loadImage(ASSETS.images.background), vector: vectorBackground() };
+  backgrounds = { classic: await loadImage(ASSETS.images.background), vector: vectorBackground(), neon: neonBackground() };
   let saved = 'classic';
   try { saved = localStorage.getItem('asteroids-look') || saved; } catch { /* storage blocked */ }
   applyLook(saved);
@@ -863,7 +865,7 @@ async function loadCostumes() {
 // The game wears either the original Scratch costumes or line art in the style of a
 // colour vector arcade. Only the pictures change: collision masks always come from
 // the original costumes.
-const LOOKS = ['classic', 'vector'];
+const LOOKS = ['classic', 'vector', 'neon'];
 const VEC = { ship: '#eef0fb', rock: '#ff0088', laser: '#b0fbff', gun: '#eef0fb', bomb: '#ff8c1a', spark: '#eef0fb', aim: '#b0fbff', void: '#05040c' };
 const VEC_SHIP = 'M-4,-15 L10,-4.5 L10,4.5 L-4,15 L-10,14 L-7.5,12.5 L-0.5,0 L-7.5,-12.5 L-10,-14 Z';
 const VEC_ROCK = [13, 11.2, 14, 12.6, 10.4, 13.4, 12, 14.2, 11, 13.2, 12.2, 10.8].map((r, i, all) => {
@@ -892,11 +894,11 @@ for (const name of ['asteroid1', 'asteroid2', 'asteroid3'])
   VECTOR_ART[name] = [vecLine(VEC.rock, `<polygon points="${VEC_ROCK}"/><path d="M-4,-6 L1,-3 L-2,2"/>`), 1.1, 3];
 healthCostumes.forEach((_, i) => { VECTOR_ART[`health${i + 1}`] = [vecHealth(Math.min(10, i + 1)), 1.1, 2]; });
 
-async function vectorLook(def, [art, fit, pad]) {
+async function lineLook(def, [art, fit, pad], { blur = .7, glows = 1, defs = '' } = {}) {
   const x = -def.cx - pad, y = -def.cy - pad, w = def.w + 2 * pad, h = def.h + 2 * pad;
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="${x} ${y} ${w} ${h}">`
-    + `<defs><filter id="glow" filterUnits="userSpaceOnUse" x="${x}" y="${y}" width="${w}" height="${h}"><feGaussianBlur stdDeviation="${.7 / fit}" result="b"/>`
-    + '<feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter></defs>'
+    + `<defs><filter id="glow" filterUnits="userSpaceOnUse" x="${x}" y="${y}" width="${w}" height="${h}"><feGaussianBlur stdDeviation="${blur / fit}" result="b"/>`
+    + `<feMerge>${'<feMergeNode in="b"/>'.repeat(glows)}<feMergeNode in="SourceGraphic"/></feMerge></filter>${defs}</defs>`
     + `<g filter="url(#glow)"><g transform="scale(${1 / fit})">${art}</g></g></svg>`;
   const img = await loadImage('data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg));
   return { image: rasterise(img, w, h, RASTER).canvas, pad };
@@ -918,6 +920,50 @@ function vectorBackground() {
     g.beginPath();
     g.arc(random() * c.width, random() * c.height, random() < .15 ? 1.6 : .9, 0, Math.PI * 2);
     g.fill();
+  }
+  return c;
+}
+
+// Neon synthwave: dark shapes with glowing pink, cyan and orange edges over a violet grid.
+const NEON = { ship: '#29e6ff', pink: '#ff2fb0', orange: '#ffb02e', lime: '#b6ff3b', dark: '#0d0220', grid: '#6a3cff', sky: '#06020d' };
+const NEON_DEFS = `<radialGradient id="rock" cx=".4" cy=".35" r=".7"><stop offset="0" stop-color="#6a0f46"/><stop offset="1" stop-color="#1c0412"/></radialGradient>
+  <linearGradient id="hp"><stop offset="0" stop-color="${NEON.pink}"/><stop offset="1" stop-color="${NEON.ship}"/></linearGradient>
+  <radialGradient id="halo"><stop offset="0" stop-color="#fff6c2"/><stop offset=".35" stop-color="${NEON.orange}"/><stop offset=".7" stop-color="${NEON.pink}" stop-opacity=".55"/><stop offset="1" stop-color="${NEON.pink}" stop-opacity="0"/></radialGradient>`;
+const neonHealth = filled => `<rect x="-11.5" y="-2.6" width="23" height="5.2" rx="2.6" fill="#1a0626" stroke="${NEON.pink}" stroke-width=".6"/>`
+  + (filled ? `<rect x="-10.5" y="-1.6" width="${(21 * filled / 10).toFixed(2)}" height="3.2" rx="1.6" fill="url(#hp)"/>` : '');
+const NEON_ART = {
+  ship: [`<path d="${VEC_SHIP}" fill="${NEON.dark}" stroke="${NEON.ship}" stroke-width="1.1" stroke-linejoin="round"/><path d="M-5,-10.5 L0.5,-1.5 L5,-1.5 Z M-5,10.5 L0.5,1.5 L5,1.5 Z" fill="${NEON.pink}"/>`, 1.15, 4],
+  laser1: [`<rect x="-7.5" y="-1.2" width="15" height="2.4" rx="1.2" fill="#fff" stroke="${NEON.pink}" stroke-width="1.1"/>`, 1.4, 4],
+  laser2: [`<rect x="-5" y="-1" width="10" height="2" rx="1" fill="#fff" stroke="${NEON.ship}" stroke-width="1"/>`, 1.4, 4],
+  aim: [`<g fill="none" stroke="${NEON.lime}" stroke-width="1" stroke-linecap="round"><circle r="4.5"/><path d="M-7.5,-4 V-7.5 H-4 M4,-7.5 H7.5 V-4 M7.5,4 V7.5 H4 M-4,7.5 H-7.5 V4"/></g>`, 1.9, 4],
+  bomb: [`<circle r="8.5" fill="#1a0626" stroke="${NEON.orange}" stroke-width="1.4"/><circle r="3.2" fill="${NEON.pink}"/>`, 1.2, 4],
+  blast: [`<circle r="30" fill="url(#halo)"/><g fill="none"><circle r="26" stroke="${NEON.pink}" stroke-width="1.4"/><circle r="18" stroke="${NEON.orange}" stroke-width="1.8"/></g>`, .5, 6],
+};
+const NEON_ROCK_POINTS = VEC_ROCK.split(' ');
+for (const name of ['asteroid1', 'asteroid2', 'asteroid3'])
+  NEON_ART[name] = [`<polygon points="${VEC_ROCK}" fill="url(#rock)" stroke="${NEON.pink}" stroke-width="1.1" stroke-linejoin="round"/>`
+    + `<path d="M-3,-2 L${NEON_ROCK_POINTS[1]} M-3,-2 L${NEON_ROCK_POINTS[5]} M-3,-2 L${NEON_ROCK_POINTS[8]} M-3,-2 L${NEON_ROCK_POINTS[10]}" stroke="${NEON.pink}" stroke-width=".5" opacity=".55"/>`, 1.1, 4];
+healthCostumes.forEach((_, i) => { NEON_ART[`health${i + 1}`] = [neonHealth(Math.min(10, i + 1)), 1.1, 3]; });
+
+// Just a grid: fine violet lines, every fourth one brighter.
+function neonBackground() {
+  const c = document.createElement('canvas');
+  c.width = STAGE_W * 2;
+  c.height = STAGE_H * 2;
+  const g = c.getContext('2d');
+  g.fillStyle = NEON.sky;
+  g.fillRect(0, 0, c.width, c.height);
+  g.strokeStyle = NEON.grid;
+  g.shadowColor = NEON.grid;
+  g.shadowBlur = 6;
+  const step = 30;
+  for (let i = 0; i * step <= Math.max(c.width, c.height); i++) {
+    g.globalAlpha = i % 4 ? .22 : .5;
+    g.lineWidth = i % 4 ? 1 : 1.6;
+    g.beginPath();
+    g.moveTo(i * step + .5, 0); g.lineTo(i * step + .5, c.height);
+    g.moveTo(0, i * step + .5); g.lineTo(c.width, i * step + .5);
+    g.stroke();
   }
   return c;
 }
@@ -1011,6 +1057,16 @@ function drawSprite(s) {
 function drawScore(g, x, y, value) {
   g.textAlign = 'center';
   g.textBaseline = 'top';
+  if (look === 'neon') {
+    g.save();
+    g.font = '700 15px Syncopate, "Arial Black", sans-serif';
+    g.shadowColor = NEON.pink;
+    g.shadowBlur = 10;
+    g.fillStyle = '#fff';
+    g.fillText(String(value), x, y);
+    g.restore();
+    return;
+  }
   if (look === 'vector') {
     g.save();
     g.font = '700 15px Syncopate, "Arial Black", sans-serif';
@@ -1032,22 +1088,22 @@ function drawScore(g, x, y, value) {
 
 // Machine-gun bar and the shorter bomb bar, centred on x with the gun bar's top at y (canvas units).
 const AMMO_BARS = [
-  { w: 16, h: 2.2, gap: 0, color: '#b0fbff', vector: VEC.gun },
-  { w: 10, h: 1.6, gap: 1.2, color: '#ff8c1a', vector: VEC.bomb },
+  { w: 16, h: 2.2, gap: 0, color: '#b0fbff', vector: VEC.gun, neon: NEON.ship },
+  { w: 10, h: 1.6, gap: 1.2, color: '#ff8c1a', vector: VEC.bomb, neon: NEON.orange },
 ];
 function drawAmmoBars(g, x, y, gun, bomb) {
   for (const [i, value] of [gun, bomb].entries()) {
     const bar = AMMO_BARS[i];
     y += bar.gap;
-    if (look === 'vector') {
-      g.strokeStyle = bar.vector;
+    if (look !== 'classic') {
+      g.strokeStyle = bar[look];
       g.lineWidth = .35;
       g.strokeRect(x - bar.w / 2 - .5, y - .5, bar.w + 1, bar.h + 1);
     } else {
       g.fillStyle = 'rgba(5, 4, 12, .7)';
       g.fillRect(x - bar.w / 2 - 0.4, y - 0.4, bar.w + 0.8, bar.h + 0.8);
     }
-    g.fillStyle = look === 'vector' ? bar.vector : bar.color;
+    g.fillStyle = look === 'classic' ? bar.color : bar[look];
     g.fillRect(x - bar.w / 2, y, bar.w * Math.max(0, Math.min(1, value)), bar.h);
     y += bar.h;
   }
