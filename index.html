@@ -264,7 +264,7 @@ canvas.playing { cursor: none; }
       <dt>mezerník</dt><dd>kulomet</dd>
       <dt>E</dt><dd>bomba</dd>
     </dl>
-    <p id="hud-hint">Čísla nahoře, zleva: bomby, skóre, náboje kulometu.</p>
+    <p id="hud-hint">Nahoře je skóre. Nad lodí: kulomet (delší proužek) a bomba (kratší).</p>
     <div id="modes">
       <button id="play" type="button">Hrát</button>
       <button id="practice" type="button" title="Pomalejší asteroidy, 10× víc zdraví, skóre se neukládá">Trénink</button>
@@ -322,6 +322,7 @@ const MODES = {
 };
 let mode = MODES.normal;
 
+const BOMB_RECHARGE = 5; // seconds to refill the single bomb
 const STAGE_W = 480, STAGE_H = 360, FENCE = 15, MAX_CLONES = 300, MAX_ASTEROIDS = 200, TICK = 1 / 30;
 const SHOT_HEAD_START = 4; // steps a shot flies before it can hit the edge
 const RASTER = 6, MASK_RES = 2;
@@ -511,7 +512,7 @@ function* shipMain(s) {
   s.vars.speedX = 0;
   G.speedY = 0;
   G.machineGun = 40;
-  G.cooldown = 5;
+  G.bomb = 1;
   while (!(G.health < 1)) {
     G.direction = s.dir;
     pointAtMouse(s);
@@ -578,27 +579,19 @@ function* machineGunFloor() {
   }
 }
 
+// G.bomb is the charge, 0..1; a bomb can be fired only when it is full.
 function* bombReload() {
   for (;;) {
-    if (G.cooldown > 5) G.cooldown = 5;
-    else { yield* wait(5); G.cooldown += 1; }
-    yield;
-  }
-}
-
-function* bombFloor() {
-  for (;;) {
-    if (G.cooldown < 1) G.cooldown = 0;
+    G.bomb = Math.min(1, G.bomb + TICK / BOMB_RECHARGE);
     yield;
   }
 }
 
 function* bombKey() {
   for (;;) {
-    if (key('bomb') && G.cooldown > 0) {
-      G.cooldown -= 1;
+    if (key('bomb') && G.bomb >= 1) {
+      G.bomb = 0;
       createClone(bombSprite);
-      yield* wait(1);
     }
     yield;
   }
@@ -731,7 +724,7 @@ function enemyHit(s) {
 function resetWorld() {
   threads = []; layers = []; byName = {}; cloneCount = 0; time = 0;
   HEALTH = [];
-  G = { speedY: 0, direction: 0, fireRate: -2, machineGun: 40, size: 116, skore: 0, health: 100, cooldown: 2 };
+  G = { speedY: 0, direction: 0, fireRate: -2, machineGun: 40, size: 116, skore: 0, health: 100, bomb: 1 };
 
   const asteroid = (name, asset, size, fixedSize, x, y, dir) => makeSprite({
     name, costumes: [COSTUMES[asset], BIG_COSTUME], x, y, size, dir, fixedSize, isAsteroid: true, visible: false, onClone: [asteroidLife],
@@ -761,7 +754,7 @@ function resetWorld() {
   });
 
   // Same start order as the green flag: top layer first.
-  for (const script of [shipMain, machineGunReload, machineGunFloor, bombReload, bombFloor, bombKey]) spawn(ship, script);
+  for (const script of [shipMain, machineGunReload, machineGunFloor, bombReload, bombKey]) spawn(ship, script);
   spawn(bombSprite, hide);
   spawn(aim, aimFollow);
   spawn(healthBar, hide);
@@ -913,13 +906,32 @@ function drawSprite(s) {
   ctx.restore();
 }
 
-function drawMonitor(x, value) {
-  ctx.fillStyle = '#ff8c1a';
-  ctx.beginPath();
-  ctx.roundRect(x, 0, 48, 22, 4);
-  ctx.fill();
-  ctx.fillStyle = '#fff';
-  ctx.fillText(String(Math.round(value * 100) / 100), x + 24, 11.5);
+// Score in the menu's title look: light digits with a pink offset shadow.
+function drawScore(g, x, y, value) {
+  g.font = '700 15px Syncopate, "Arial Black", sans-serif';
+  g.textAlign = 'center';
+  g.textBaseline = 'top';
+  g.fillStyle = '#ff0088';
+  g.fillText(String(value), x + 1, y + 1);
+  g.fillStyle = '#eef0fb';
+  g.fillText(String(value), x, y);
+}
+
+// Machine-gun bar and the shorter bomb bar, centred on x with the gun bar's top at y (canvas units).
+const AMMO_BARS = [
+  { w: 16, h: 2.2, gap: 0, color: '#b0fbff' },
+  { w: 10, h: 1.6, gap: 1.2, color: '#ff8c1a' },
+];
+function drawAmmoBars(g, x, y, gun, bomb) {
+  for (const [i, value] of [gun, bomb].entries()) {
+    const bar = AMMO_BARS[i];
+    y += bar.gap;
+    g.fillStyle = 'rgba(5, 4, 12, .7)';
+    g.fillRect(x - bar.w / 2 - 0.4, y - 0.4, bar.w + 0.8, bar.h + 0.8);
+    g.fillStyle = bar.color;
+    g.fillRect(x - bar.w / 2, y, bar.w * Math.max(0, Math.min(1, value)), bar.h);
+    y += bar.h;
+  }
 }
 
 function render() {
@@ -930,12 +942,8 @@ function render() {
   ctx.drawImage(background, 0, 0.5, STAGE_W, 359.5);
   if (phase === 'menu') return;
   for (const s of layers) if (s.visible) drawSprite(s);
-  ctx.font = '600 14px "Helvetica Neue", Helvetica, Arial, sans-serif';
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'middle';
-  drawMonitor(119, G.cooldown);
-  drawMonitor(211, G.skore);
-  drawMonitor(310, G.machineGun);
+  if (ship.visible) drawAmmoBars(ctx, STAGE_W / 2 + ship.x, STAGE_H / 2 - ship.y - 23, G.machineGun / 40, G.bomb);
+  drawScore(ctx, STAGE_W / 2, 6, G.skore);
 }
 
 let lastFrame = 0, backlog = 0;
@@ -1095,7 +1103,7 @@ const GUIDE = [
       { c: 'asteroid3', x: 100, y: -5, dir: 60, size: 160 },
     ],
     keys: 'space',
-    text: 'Drž <kbd>mezerník</kbd> a kulomet vystřelí <strong>30 střel za sekundu</strong>. Má ale jen 40 nábojů a každou sekundu se dobije 5. Kolik ti jich zbývá, ukazuje <strong>pravé oranžové okénko</strong> nahoře.',
+    text: 'Drž <kbd>mezerník</kbd> a kulomet vystřelí <strong>30 střel za sekundu</strong>. Má ale jen 40 nábojů a každou sekundu se dobije 5. Kolik ti jich zbývá, ukazuje <strong>delší modrý proužek nad lodí</strong>.',
   },
   {
     title: 'Bomba',
@@ -1105,7 +1113,7 @@ const GUIDE = [
       { c: 'ship', x: -90, y: -10, dir: 90, size: 160 }, { c: 'bomb', x: -45, y: -10, size: 150 }, { c: 'blast', x: 55, y: 0, size: 85 },
     ],
     keys: 'e',
-    text: 'Klávesou <kbd>E</kbd> vystřelíš bombu. Když trefí asteroid, <strong>vybuchne a 3 sekundy</strong> ničí všechno, čeho se dotkne. Pozor: za asteroidy zničené bombou <strong>nejsou body</strong>. Bomb máš nejvýš 5 a nová přibude každých 5 sekund. Počet je v <strong>levém okénku</strong>.',
+    text: 'Klávesou <kbd>E</kbd> vystřelíš bombu. Když trefí asteroid, <strong>vybuchne a 3 sekundy</strong> ničí všechno, čeho se dotkne. Pozor: za asteroidy zničené bombou <strong>nejsou body</strong>. Bombu máš <strong>jen jednu</strong>. Po výstřelu se znovu nabíjí 5 sekund. Ukazuje to <strong>kratší oranžový proužek nad lodí</strong>: když je plný, můžeš střílet.',
   },
   {
     title: 'Asteroidy se dělí',
@@ -1130,10 +1138,10 @@ const GUIDE = [
     text: 'Pod lodí je <strong>ukazatel zdraví</strong>. Každý dotek s asteroidem ubírá zdraví a loď na chvilku zbělá. Dokud se asteroidu dotýkáš, zdraví mizí rychle, tak <strong>uhýbej</strong>.',
   },
   {
-    title: 'Ukazatele nahoře',
-    alt: 'Tři oranžová okénka s popisky: bomby, skóre, náboje.',
+    title: 'Ukazatele',
+    alt: 'Skóre nahoře uprostřed a loď s modrým proužkem kulometu a oranžovým proužkem bomby nad sebou.',
     hud: true,
-    text: 'Nahoře jsou tři oranžová okénka. <strong>Vlevo</strong> počet bomb, <strong>uprostřed</strong> skóre, <strong>vpravo</strong> náboje kulometu.',
+    text: 'Nahoře uprostřed je <strong>skóre</strong>. Nad lodí jsou dva proužky: <strong>delší modrý</strong> jsou náboje kulometu, <strong>kratší oranžový</strong> je bomba. Při střelbě se vybíjejí a samy se zase nabíjejí.',
   },
   {
     title: 'Trénink a tabulka',
@@ -1153,29 +1161,29 @@ const VIEW_W = 240, VIEW_H = 110;
 let guidePage = 0;
 
 function drawGuideHud(g) {
-  g.fillStyle = 'rgba(5, 4, 12, .55)';
-  g.fillRect(-VIEW_W / 2, -VIEW_H / 2, VIEW_W, VIEW_H);
-  g.textAlign = 'center';
-  g.textBaseline = 'middle';
+  drawScore(g, -40, -48, 420);
+  const ship = COSTUMES.ship;
+  g.save();
+  g.translate(10, 22);
+  g.scale(1.8, 1.8);
+  g.drawImage(ship.image, -ship.cx, -ship.cy, ship.w, ship.h);
+  drawAmmoBars(g, 0, -23, 0.6, 0.45);
+  g.restore();
   g.strokeStyle = '#b0fbff';
+  g.fillStyle = '#b0fbff';
   g.lineWidth = 0.6;
-  [['5', 'bomby'], ['420', 'skóre'], ['40', 'náboje']].forEach(([value, label], i) => {
-    const x = -82 + i * 58;
-    g.fillStyle = '#ff8c1a';
+  g.font = '600 9px Consolas, monospace';
+  g.textAlign = 'left';
+  g.textBaseline = 'middle';
+  for (const [x1, y1, x2, y2, label] of [
+    [-14, -40, 20, -40, 'skóre'], [27, -17.5, 50, -17.5, 'kulomet'], [21, -12, 50, -4, 'bomba'],
+  ]) {
     g.beginPath();
-    g.roundRect(x, -30, 48, 22, 4);
-    g.fill();
-    g.fillStyle = '#fff';
-    g.font = '600 14px "Helvetica Neue", Helvetica, Arial, sans-serif';
-    g.fillText(value, x + 24, -18.5);
-    g.beginPath();
-    g.moveTo(x + 24, -5);
-    g.lineTo(x + 24, 2);
+    g.moveTo(x1, y1);
+    g.lineTo(x2, y2);
     g.stroke();
-    g.fillStyle = '#b0fbff';
-    g.font = '600 11px Consolas, monospace';
-    g.fillText(label, x + 24, 10);
-  });
+    g.fillText(label, x2 + 3, y2);
+  }
 }
 
 function drawGuideScene(page) {
