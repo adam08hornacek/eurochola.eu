@@ -476,23 +476,22 @@ function opaqueAt(s, px, py) {
 
 // Pixel-precise like Scratch: hidden sprites never touch, and only on-stage pixels count.
 function touching(s, ...names) {
-  if (!s.visible) return false;
-  const c = s.costumes[s.costume], k = s.size / 100;
-  let a = null;
-  for (const name of names) {
-    for (const o of byName[name]) {
-      if (!o.visible) continue;
-      const oc = o.costumes[o.costume], reach = c.radius * k + oc.radius * o.size / 100;
-      if (Math.abs(o.x - s.x) > reach || Math.abs(o.y - s.y) > reach) continue;
-      a = a || boundsOf(s, c.outline);
-      const b = boundsOf(o, oc.outline);
-      const left = Math.floor(Math.max(a.left, b.left, -STAGE_W / 2)), right = Math.ceil(Math.min(a.right, b.right, STAGE_W / 2));
-      const bottom = Math.floor(Math.max(a.bottom, b.bottom, -STAGE_H / 2)), top = Math.ceil(Math.min(a.top, b.top, STAGE_H / 2));
-      for (let x = left; x < right; x++)
-        for (let y = bottom; y < top; y++)
-          if (opaqueAt(s, x, y) && opaqueAt(o, x, y)) return true;
-    }
-  }
+  for (const name of names)
+    for (const o of byName[name]) if (touchingSprite(s, o)) return true;
+  return false;
+}
+
+function touchingSprite(s, o) {
+  if (!s.visible || !o.visible) return false;
+  const c = s.costumes[s.costume], oc = o.costumes[o.costume];
+  const reach = c.radius * s.size / 100 + oc.radius * o.size / 100;
+  if (Math.abs(o.x - s.x) > reach || Math.abs(o.y - s.y) > reach) return false;
+  const a = boundsOf(s, c.outline), b = boundsOf(o, oc.outline);
+  const left = Math.floor(Math.max(a.left, b.left, -STAGE_W / 2)), right = Math.ceil(Math.min(a.right, b.right, STAGE_W / 2));
+  const bottom = Math.floor(Math.max(a.bottom, b.bottom, -STAGE_H / 2)), top = Math.ceil(Math.min(a.top, b.top, STAGE_H / 2));
+  for (let x = left; x < right; x++)
+    for (let y = bottom; y < top; y++)
+      if (opaqueAt(s, x, y) && opaqueAt(o, x, y)) return true;
   return false;
 }
 
@@ -556,9 +555,12 @@ function unlimited() {
 
 function checkPlayerCollision(s) {
   s.brightness = 0;
-  if (touching(s, 'Sprite6', 'Sprite7', 'Sprite2')) {
+  let biggest = 0;
+  for (const name of ['Sprite6', 'Sprite7', 'Sprite2'])
+    for (const o of byName[name]) if (o.size > biggest && touchingSprite(s, o)) biggest = o.size;
+  if (biggest) {
     s.brightness = 100;
-    G.health -= 5;
+    G.health -= 5 * biggest / 300;
   }
   HEALTH.push(s.x, s.y - 30, G.health / s.vars.maxHealth);
   createClone(healthBar);
@@ -1135,7 +1137,7 @@ const GUIDE = [
       { c: 'asteroid1', x: -60, y: 15, dir: 90, size: 220 }, { c: 'ship', x: -40, y: 8, dir: 200, size: 160, white: true },
       { c: 'health10', x: 55, y: 25, size: 300 }, { c: 'health5', x: 55, y: 0, size: 300 }, { c: 'health1', x: 55, y: -25, size: 300 },
     ],
-    text: 'Pod lodí je <strong>ukazatel zdraví</strong>. Každý dotek s asteroidem ubírá zdraví a loď na chvilku zbělá. Dokud se asteroidu dotýkáš, zdraví mizí rychle, tak <strong>uhýbej</strong>.',
+    text: 'Pod lodí je <strong>ukazatel zdraví</strong>. Každý dotek s asteroidem ubírá zdraví a loď na chvilku zbělá. <strong>Čím větší asteroid, tím víc zdraví ubere</strong>, malé úlomky skoro nebolí. Dokud se asteroidu dotýkáš, zdraví mizí rychle, tak <strong>uhýbej</strong>.',
   },
   {
     title: 'Ukazatele',
