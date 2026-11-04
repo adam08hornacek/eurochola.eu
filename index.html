@@ -85,6 +85,20 @@ canvas.playing { cursor: none; }
 #play:hover { background: var(--laser); color: var(--void); }
 #practice:hover { background: var(--muted); color: var(--void); }
 #play:focus-visible, #practice:focus-visible { outline: 2px solid var(--asteroid); outline-offset: 3px; }
+#looks { display: flex; flex-wrap: wrap; justify-content: center; align-items: center; gap: 8px; }
+#looks span { color: var(--muted); }
+#looks button {
+  padding: 4px 14px;
+  border: 1px solid var(--muted);
+  border-radius: 2px;
+  background: transparent;
+  color: var(--muted);
+  font: 600 14px var(--mono);
+  cursor: pointer;
+}
+#looks button:hover { border-color: var(--laser); color: var(--laser); }
+#looks button[aria-pressed="true"] { border-color: var(--laser); background: var(--laser); color: var(--void); }
+#looks button:focus-visible { outline: 2px solid var(--asteroid); outline-offset: 3px; }
 #save { display: flex; flex-wrap: wrap; justify-content: center; align-items: center; gap: 8px; }
 #save label { color: var(--muted); }
 #player {
@@ -268,6 +282,11 @@ canvas.playing { cursor: none; }
     <div id="modes">
       <button id="play" type="button">Hrát</button>
       <button id="practice" type="button" title="Pomalejší asteroidy, 10× víc zdraví, skóre se neukládá">Trénink</button>
+    </div>
+    <div id="looks" role="group" aria-label="Vzhled hry">
+      <span>Vzhled</span>
+      <button type="button" data-look="classic" aria-pressed="true">Klasický</button>
+      <button type="button" data-look="vector" aria-pressed="false">Vektorový</button>
     </div>
     <section id="board" hidden aria-labelledby="board-title">
       <h2 id="board-title">NEJLEPŠÍ SKÓRE</h2>
@@ -830,12 +849,92 @@ function whiteCopy(source) {
 async function loadCostumes() {
   await Promise.all(Object.entries(COSTUMES).map(async ([name, c]) => {
     const img = await loadImage(ASSETS.images[name]);
-    c.image = rasterise(img, c.w, c.h, RASTER).canvas;
     Object.assign(c, buildMask(img, c));
+    c.looks = { classic: { image: rasterise(img, c.w, c.h, RASTER).canvas, pad: 0 }, vector: await vectorLook(c, VECTOR_ART[name]) };
   }));
-  COSTUMES.ship.white = whiteCopy(COSTUMES.ship.image);
-  background = await loadImage(ASSETS.images.background);
+  for (const name of LOOKS) COSTUMES.ship.looks[name].white = whiteCopy(COSTUMES.ship.looks[name].image);
+  backgrounds = { classic: await loadImage(ASSETS.images.background), vector: vectorBackground() };
+  let saved = 'classic';
+  try { saved = localStorage.getItem('asteroids-look') || saved; } catch { /* storage blocked */ }
+  applyLook(saved);
 }
+
+// ---- looks ---------------------------------------------------------------
+// The game wears either the original Scratch costumes or line art in the style of a
+// colour vector arcade. Only the pictures change: collision masks always come from
+// the original costumes.
+const LOOKS = ['classic', 'vector'];
+const VEC = { ship: '#e8f4ff', rock: '#8fa3c2', laser: '#ff4a5a', gun: '#4ad8ff', bomb: '#ffb347', spark: '#ffe066', aim: '#6dff8a' };
+const VEC_SHIP = 'M-4,-15 L10,-4.5 L10,4.5 L-4,15 L-10,14 L-7.5,12.5 L-0.5,0 L-7.5,-12.5 L-10,-14 Z';
+const VEC_ROCK = [13, 11.2, 14, 12.6, 10.4, 13.4, 12, 14.2, 11, 13.2, 12.2, 10.8].map((r, i, all) => {
+  const a = i / all.length * Math.PI * 2;
+  return `${(Math.cos(a) * r).toFixed(2)},${(Math.sin(a) * r).toFixed(2)}`;
+}).join(' ');
+const vecLine = (color, body, width = .9) =>
+  `<g fill="none" stroke="${color}" stroke-width="${width}" stroke-linejoin="round" stroke-linecap="round">${body}</g>`;
+const vecHealth = filled => vecLine(VEC.ship, '<rect x="-11.5" y="-2.8" width="23" height="5.6"/>', .6)
+  + Array.from({ length: filled }, (_, i) => `<rect x="${-10.5 + i * 2.1}" y="-1.8" width="1.7" height="3.6" fill="${VEC.aim}"/>`).join('');
+
+// Line art drawn in its own frame (ship pointing right), placed on the costume's rotation
+// centre and shrunk by fit so it covers the original picture; pad leaves room for the glow.
+const VECTOR_ART = {
+  ship: [vecLine(VEC.ship, `<path d="${VEC_SHIP}"/>`) + vecLine(VEC.laser, '<path d="M-5,-10.5 L5,-1.5 M-5,10.5 L5,1.5"/>', .7), 1.15, 3],
+  laser1: [vecLine(VEC.laser, `<path d="M-7,0 H5"/><circle cx="7" r="1" fill="${VEC.laser}"/>`, 1), 1.4, 3],
+  laser2: [vecLine(VEC.gun, '<path d="M-7,0 H-4 M-1.5,0 H1.5 M4,0 H7"/>', 1), 1.4, 3],
+  aim: [vecLine(VEC.aim, '<circle r="4.5"/><path d="M0,-8.5 V-6 M0,6 V8.5 M-8.5,0 H-6 M6,0 H8.5"/>'), 1.9, 3],
+  bomb: [vecLine(VEC.bomb, '<circle r="8.5"/><circle r="3"/><path d="M-11,0 H-9 M9,0 H11 M0,-11 V-9 M0,9 V11"/>'), 1.2, 3],
+  blast: [vecLine(VEC.bomb, '<circle r="28" stroke-dasharray="2 4"/>') + Array.from({ length: 12 }, (_, i) => {
+    const a = i * Math.PI / 6, c = Math.cos(a), s = Math.sin(a);
+    return vecLine(i % 2 ? VEC.laser : VEC.spark, `<path d="M${(c * 10).toFixed(1)},${(s * 10).toFixed(1)} L${(c * 21).toFixed(1)},${(s * 21).toFixed(1)}"/>`);
+  }).join(''), .5, 4],
+};
+for (const name of ['asteroid1', 'asteroid2', 'asteroid3'])
+  VECTOR_ART[name] = [vecLine(VEC.rock, `<polygon points="${VEC_ROCK}"/><path d="M-4,-6 L1,-3 L-2,2"/>`), 1.1, 3];
+healthCostumes.forEach((_, i) => { VECTOR_ART[`health${i + 1}`] = [vecHealth(Math.min(10, i + 1)), 1.1, 2]; });
+
+async function vectorLook(def, [art, fit, pad]) {
+  const x = -def.cx - pad, y = -def.cy - pad, w = def.w + 2 * pad, h = def.h + 2 * pad;
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="${x} ${y} ${w} ${h}">`
+    + `<defs><filter id="glow" filterUnits="userSpaceOnUse" x="${x}" y="${y}" width="${w}" height="${h}"><feGaussianBlur stdDeviation="${.7 / fit}" result="b"/>`
+    + '<feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter></defs>'
+    + `<g filter="url(#glow)"><g transform="scale(${1 / fit})">${art}</g></g></svg>`;
+  const img = await loadImage('data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg));
+  return { image: rasterise(img, w, h, RASTER).canvas, pad };
+}
+
+// Black sky with faint stars in the palette's colours, at the backdrop's 2 px per stage unit.
+function vectorBackground() {
+  const c = document.createElement('canvas');
+  c.width = STAGE_W * 2;
+  c.height = STAGE_H * 2;
+  const g = c.getContext('2d');
+  g.fillStyle = '#000';
+  g.fillRect(0, 0, c.width, c.height);
+  let seed = 7;
+  const random = () => (seed = seed * 16807 % 2147483647) / 2147483647;
+  for (let i = 0; i < 160; i++) {
+    g.globalAlpha = .25 + random() * .45;
+    g.fillStyle = [VEC.ship, VEC.gun, VEC.bomb][i % 3];
+    g.beginPath();
+    g.arc(random() * c.width, random() * c.height, random() < .15 ? 1.6 : .9, 0, Math.PI * 2);
+    g.fill();
+  }
+  return c;
+}
+
+let look = 'classic', backgrounds = null;
+const lookButtons = document.querySelectorAll('#looks button');
+
+function applyLook(name) {
+  if (!backgrounds || !LOOKS.includes(name)) return;
+  look = name;
+  for (const c of Object.values(COSTUMES)) Object.assign(c, c.looks[name]);
+  background = backgrounds[name];
+  for (const button of lookButtons) button.setAttribute('aria-pressed', String(button.dataset.look === name));
+  try { localStorage.setItem('asteroids-look', name); } catch { /* storage blocked */ }
+}
+
+for (const button of lookButtons) button.addEventListener('click', () => applyLook(button.dataset.look));
 
 // ---- sound ---------------------------------------------------------------
 const AudioCtx = window.AudioContext || window.webkitAudioContext;
@@ -904,15 +1003,26 @@ function drawSprite(s) {
   ctx.translate(STAGE_W / 2 + s.x, STAGE_H / 2 - s.y);
   ctx.rotate(rad(s.dir - 90));
   ctx.scale(k, k);
-  ctx.drawImage(s.brightness >= 100 && c.white ? c.white : c.image, -c.cx, -c.cy, c.w, c.h);
+  ctx.drawImage(s.brightness >= 100 && c.white ? c.white : c.image, -c.cx - c.pad, -c.cy - c.pad, c.w + 2 * c.pad, c.h + 2 * c.pad);
   ctx.restore();
 }
 
 // Score in the menu's title look: light digits with a pink offset shadow.
 function drawScore(g, x, y, value) {
-  g.font = '700 15px Syncopate, "Arial Black", sans-serif';
   g.textAlign = 'center';
   g.textBaseline = 'top';
+  if (look === 'vector') {
+    g.save();
+    g.font = '600 16px "JetBrains Mono", Consolas, monospace';
+    g.shadowColor = VEC.ship;
+    g.shadowBlur = 6;
+    g.strokeStyle = VEC.ship;
+    g.lineWidth = .7;
+    g.strokeText(String(value), x, y);
+    g.restore();
+    return;
+  }
+  g.font = '700 15px Syncopate, "Arial Black", sans-serif';
   g.fillStyle = '#ff0088';
   g.fillText(String(value), x + 1, y + 1);
   g.fillStyle = '#eef0fb';
@@ -921,16 +1031,22 @@ function drawScore(g, x, y, value) {
 
 // Machine-gun bar and the shorter bomb bar, centred on x with the gun bar's top at y (canvas units).
 const AMMO_BARS = [
-  { w: 16, h: 2.2, gap: 0, color: '#b0fbff' },
-  { w: 10, h: 1.6, gap: 1.2, color: '#ff8c1a' },
+  { w: 16, h: 2.2, gap: 0, color: '#b0fbff', vector: VEC.gun },
+  { w: 10, h: 1.6, gap: 1.2, color: '#ff8c1a', vector: VEC.bomb },
 ];
 function drawAmmoBars(g, x, y, gun, bomb) {
   for (const [i, value] of [gun, bomb].entries()) {
     const bar = AMMO_BARS[i];
     y += bar.gap;
-    g.fillStyle = 'rgba(5, 4, 12, .7)';
-    g.fillRect(x - bar.w / 2 - 0.4, y - 0.4, bar.w + 0.8, bar.h + 0.8);
-    g.fillStyle = bar.color;
+    if (look === 'vector') {
+      g.strokeStyle = bar.vector;
+      g.lineWidth = .35;
+      g.strokeRect(x - bar.w / 2 - .5, y - .5, bar.w + 1, bar.h + 1);
+    } else {
+      g.fillStyle = 'rgba(5, 4, 12, .7)';
+      g.fillRect(x - bar.w / 2 - 0.4, y - 0.4, bar.w + 0.8, bar.h + 0.8);
+    }
+    g.fillStyle = look === 'vector' ? bar.vector : bar.color;
     g.fillRect(x - bar.w / 2, y, bar.w * Math.max(0, Math.min(1, value)), bar.h);
     y += bar.h;
   }
@@ -1204,7 +1320,7 @@ function drawGuideScene(page) {
     g.translate(item.x, -item.y);
     g.rotate(rad((item.dir ?? 90) - 90));
     g.scale(size, size);
-    g.drawImage(item.white ? c.white : c.image, -c.cx, -c.cy, c.w, c.h);
+    g.drawImage(item.white ? c.white : c.image, -c.cx - c.pad, -c.cy - c.pad, c.w + 2 * c.pad, c.h + 2 * c.pad);
     g.restore();
   }
   g.strokeStyle = '#b0fbff';
